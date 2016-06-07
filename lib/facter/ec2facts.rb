@@ -191,7 +191,7 @@ def query_cfn(stack_name, endpoint, access_key, secret_key, token = nil)
 end
 
 # Queries the tags from the provided EC2 instance id.
-def query_instance_tags(instance_id, endpoint, access_key, secret_key, token = nil)
+def query_instance(instance_id, endpoint, access_key, secret_key, token = nil)
   parameters = [
     ['Action',            'DescribeInstances' ],
     ['InstanceId.1',      instance_id         ],
@@ -209,8 +209,14 @@ def query_instance_tags(instance_id, endpoint, access_key, secret_key, token = n
   tags = {}
   doc.get_elements('//tagSet/item').each do |item|
     key = item.get_elements('key')[0].text
+    key.gsub!(':','_')
     value = item.get_elements('value')[0].text
-    tags[key] = value
+    tags["ec2_tag_#{key}"] = value
+  end
+
+  lifecycle = doc.get_elements('//instanceLifecycle')[0]
+  if ! lifecycle.nil?
+    tags['ec2_lifecycle'] = lifecycle.text
   end
 
   return tags
@@ -243,20 +249,37 @@ def query_autoscale_group(group_id, endpoint, access_key, secret_key, token)
     params['autoscaling_min_size'] = min_size_elem.text
   end
 
-  max_size_elem = doc.get_elements('//MinSize')[0]
+  max_size_elem = doc.get_elements('//MaxSize')[0]
   if max_size_elem.nil?
-    Facter.debug("No MinSize found for autoscaling group #{group_id}")
+    Facter.debug("No MaxSize found for autoscaling group #{group_id}")
     return nil
   else
     params['autoscaling_max_size'] = max_size_elem.text
   end
 
-  desired_cap_elem = doc.get_elements('//MinSize')[0]
+  desired_cap_elem = doc.get_elements('//DesiredCapacity')[0]
   if desired_cap_elem.nil?
-    Facter.debug("No MinSize found for autoscaling group #{group_id}")
+    Facter.debug("No DesiredCapacity found for autoscaling group #{group_id}")
     return nil
   else
     params['autoscaling_desired_capacity'] = desired_cap_elem.text
+  end
+
+  elbs = []
+  elb_elem = doc.get_elements('//LoadBalancerNames/member').each do |item|
+    elbs << item.text
+  end
+  if elbs
+    params['autoscaling_elbs'] = elbs
+  end
+
+  # Get the ASG tags.
+  doc.get_elements('//Tags/member').each do |item|
+    key = item.get_elements('Key')[0].text
+    next if key.start_with?('aws:')
+    key.gsub!(':','_')
+    value = item.get_elements('Value')[0].text
+    params["autoscaling_tag_#{key}"] = value
   end
 
   return params
@@ -266,6 +289,23 @@ end
 # If there is an autoscaling group tag (aws:autoscaling:groupName), also query
 # the autoscaling group min/max/desired size parameters.
 def check_facts
+
+  cache_file = '/tmp/ec2_facts.json'
+  if File.exist?(cache_file)
+    if ( ( Time.now - File.stat(cache_file).mtime ).to_i < [ 43200, 86400 ].sample )
+      Facter.debug( "reading from cache: " + cache_file  )
+      open(cache_file, 'r') do |io|
+        facts = parse_json_object(io.read.strip)
+        facts.each do |fact, value|
+          Facter.add(fact) do
+            setcode { value }
+          end
+        end
+      end
+      return
+    end
+  end
+
   facts = {}
   open('/etc/ec2_version', 'r') do |io|
     facts['ec2_version'] = io.read.strip
@@ -290,15 +330,14 @@ def check_facts
     return
   end
 
-  tags = query_instance_tags(instance_id, "ec2.#{region}.amazonaws.com", access_key, secret_key, token)
+  tags = query_instance(instance_id, "ec2.#{region}.amazonaws.com", access_key, secret_key, token)
   tags.each do |tag, value|
-    next if tag.start_with?('aws:')
-
-    facts["ec2_tag_#{tag}"] = value
+    facts[tag] = value
   end
 
-  if tags.has_key? 'aws:autoscaling:groupName'
-    autoscale_group = tags['aws:autoscaling:groupName']
+  if tags.has_key? 'ec2_tag_aws_autoscaling_groupName'
+
+    autoscale_group = tags['ec2_tag_aws_autoscaling_groupName']
 
     facts['autoscaling_group_name'] = autoscale_group
 
@@ -314,6 +353,8 @@ def check_facts
     cfn_data = query_cfn(cfn_stack_name, "cloudformation.#{region}.amazonaws.com", access_key, secret_key, token)
     facts = facts.merge(cfn_data)
   end
+
+  File.open(cache_file, "w", 0644) { |f| f.write(facts.to_json) }
 
   facts.each do |fact, value|
     Facter.add(fact) do

@@ -1,6 +1,6 @@
 {
   "name": "fairfax-ec2factlib",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Fairfax Online Hosting",
   "dependencies": [],
   "license": "APL 2",
@@ -9,7 +9,7 @@
   "summary": "A puppet/facter plugin to expose EC2 instance details as facts",
   "tags": ["aws", "ec2"],
   "operatingsystem_support": [
-    { "operatingsystem": "Ubuntu", "operatingsystemrelease": [ "12.04", "14.04"    ] },
-    { "operatingsystem": "RedHat", "operatingsystemrelease": [ "5.0", "6.0", "7.0" ] }
+    { "operatingsystem": "Ubuntu", "operatingsystemrelease": [ "12.04", "14.04", "16.04" ] },
+    { "operatingsystem": "RedHat", "operatingsystemrelease": [ "5.0", "6.0", "7.0"       ] }
   ]
 }
