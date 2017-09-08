@@ -355,6 +355,7 @@ def check_facts
     cfn_data = query_cfn(cfn_stack_name, "cloudformation.#{region}.amazonaws.com", access_key, secret_key, token)
     facts = facts.merge(cfn_data)
   end
+  facts['region'] = region
 
   File.open(cache_file, "w", 0644) { |f| f.write(facts.to_json) }
 
