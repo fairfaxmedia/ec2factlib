@@ -307,8 +307,10 @@ def check_facts
   end
 
   facts = {}
-  open('/etc/ec2_version', 'r') do |io|
-    facts['ec2_version'] = io.read.strip
+  if File.exists?('/etc/ec2_version')
+    open('/etc/ec2_version', 'r') do |io|
+      facts['ec2_version'] = io.read.strip
+    end
   end
 
   instance    = get_instance_document
@@ -353,6 +355,7 @@ def check_facts
     cfn_data = query_cfn(cfn_stack_name, "cloudformation.#{region}.amazonaws.com", access_key, secret_key, token)
     facts = facts.merge(cfn_data)
   end
+  facts['region'] = region
 
   File.open(cache_file, "w", 0644) { |f| f.write(facts.to_json) }
 
@@ -365,9 +368,13 @@ rescue StandardError => e
   Facter.debug("Unhandled #{e.class}: #{e.message}")
 end
 
-# This file seems to exist on our EC2 instances. There may be a better way to
-# determine if we are running on EC2.
 # We mostly want to avoid waiting for http://169.254.169.254/ to time out if we are not on EC2.
-if File.exists?('/etc/ec2_version')
-  check_facts
+# This only checks if we are a guest, not if we are on ec2.
+if File.exists?('/sys/hypervisor/uuid')
+  # check contents of uuid, starts with ec2
+  f=open('/sys/hypervisor/uuid')
+  if f.read[0..2] == 'ec2'
+    check_facts
+  end
+  f.close
 end
